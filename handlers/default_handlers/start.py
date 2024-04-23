@@ -1,0 +1,183 @@
+from telebot.types import Message
+from config_data.config import DEFAULT_COMMANDS
+from loader import bot
+from telebot import types
+from config_data.config import WEATHER_TOKEN
+from config_data.config import EXCHANGE_TOKEN
+from config_data.config import IP_TOKEN
+import requests
+import json
+from translate import Translator
+import re
+from datetime import date
+from datetime import timedelta
+
+
+translator_en_to_ru = Translator(from_lang='en', to_lang='ru')
+translator_ru_to_en = Translator(from_lang='ru', to_lang='en')
+
+markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+weather_item = types.KeyboardButton('🌤️ Узнать погоду')
+cost_item = types.KeyboardButton('💵 Стоимость жизни в городе')
+hotel_item = types.KeyboardButton('🏬 Отели')
+markup.add(weather_item, cost_item, hotel_item)
+
+today = date.today()
+two_weeks = today + timedelta(weeks=2)
+
+
+# from default_handlers.cost import get_city
+# from default_handlers.weather import city_input
+
+@bot.message_handler(commands=["start"])
+def welcome(message: Message):
+    print(f'{message.from_user.full_name} Вхождение в функцию welcome')
+    commands = bot.send_message(message.chat.id, f'Привет {message.from_user.username}, я бот который предоставит тебе инорфмацию о нужном городе.', reply_markup=markup)
+    bot.register_next_step_handler(commands, get_command)
+
+
+def get_command(message: Message):
+    text = message.text
+
+    if text == '🌤️ Узнать погоду':
+        city_input(message)
+    elif text == '💵 Стоимость жизни в указанном городе':
+        get_city(message)
+    elif text == '🏬 Отели':
+        date_and_city(message)
+
+
+#WEATHER
+def city_input(message: Message):
+    print(f'{message.from_user.full_name} Вхождение в функцию city_input, узнаёт погоду')
+
+    city = bot.send_message(message.chat.id, 'Введите город')
+    bot.register_next_step_handler(city, get_weather)
+
+def get_weather(message: Message):
+    city = message.text
+    if message.text == "💵 Стоимость жизни в указанном городе":
+        get_city(message)
+    elif message.text == "🏬 Отели":
+        date_and_city(message)
+    else:
+        print(f'{message.from_user.full_name} Вхождение в функцию get_weather')
+        print(f"Введёный город: {city}")
+        weather_request = "https://api.openweathermap.org/data/2.5/weather?q={},&appid={}&units=metric".format(city, WEATHER_TOKEN)
+        url = requests.get(weather_request)
+        data = json.loads(url.text)
+
+        if data['cod'] != '400' and data['cod'] != '404':
+            msg = bot.send_message(message.chat.id, f'Температура в городе {city}\nТемпература: {int(data['main']['temp'])}°C\nОщущается как: {int(data['main']['feels_like'])}°C\nПогода: {translator_en_to_ru.translate(data['weather'][0]['description'])}', reply_markup=markup)
+            print(f"{message.from_user.full_name} Температура в {city}: {int(data['main']['temp'])}°C")
+        else:
+            bot.send_message(message.chat.id, f'Город {city} не найден')
+            print(f"{message.from_user.full_name} Город {city} не найден")
+
+        bot.register_next_step_handler(msg, get_command)
+
+
+#COST
+def get_city(message: Message):
+    print(f'{message.from_user.full_name} Вхождение в функцию get_city, узнаёт стоимость жизни в городе')
+
+    city = bot.send_message(message.chat.id, 'Введите город')
+    bot.register_next_step_handler(city, get_cost_of_life)
+
+def get_cost_of_life(message: Message):
+    city = message.text
+
+    print(f'{message.from_user.full_name} Город: {city}')
+    city_url = translator_ru_to_en.translate(city.lower())
+    print(city_url.lower())
+    cost_of_life = requests.get(f'https://livingcost.org/cost/russia/{city_url.lower()}')
+    content = cost_of_life.text
+    if "404: page not found. Search for cities and countries below" in content:
+        bot.send_message(message.chat.id, 'Ошибка')
+        get_city(message)
+    else:
+        pattern = r'data-usd="\d{2,4}.\d{1,4}"'
+        result = re.findall(pattern, content, re.MULTILINE)
+        price_pattern = r'\d{2,4}.\d{1,4}'
+        prices = [float(re.findall(price_pattern, i)[0]) for i in re.findall(pattern, content, re.MULTILINE)]
+        rounded_prices = [int(price) for price in prices]
+
+        currency_url = f'https://v6.exchangerate-api.com/v6/{EXCHANGE_TOKEN}/latest/USD'
+        response_currency = requests.get(currency_url)
+        data = json.loads(response_currency.text)
+        ruble_to_dollar = int(data['conversion_rates']['RUB'])
+        prices_in_rubles = [price * ruble_to_dollar for price in rounded_prices]
+        prices_in_city = prices_in_rubles[:11]
+
+        msg = bot.send_message(message.chat.id, f"""
+    💰 Итого с арендной платой 
+    Один человек: {prices_in_city[0]}₽ 
+    Семья из 4 человек: {prices_in_city[1]}₽
+
+    🛋️ Без арендной платы 
+    Один человек: {prices_in_city[2]}₽ 
+    Семья из 4 человек: {prices_in_city[3]}₽
+
+    🏨 Аренда и коммунальные услуги 
+    Один человек: {prices_in_city[4]}₽ 
+    Семья из 4 человек: {prices_in_city[5]}₽
+
+    🍽️ Еда 
+    Один человек: {prices_in_city[6]}₽ 
+    Семья из 4 человек: {prices_in_city[7]}₽
+
+    🚐 Транспорт 
+    Один человек: {prices_in_city[8]}₽ 
+    Семья из 4 человек: {prices_in_city[9]}₽
+
+    💳 Месячная зарплата после уплаты налогов: {prices_in_city[10]}₽""", reply_markup=markup)
+
+        print(f"""{message.from_user.full_name} успешно получил ответ о стоимости жизни в городе {city}""")
+
+    bot.register_next_step_handler(msg, get_command)
+
+
+#HOTEL
+def date_and_city(message: Message):
+    print(message.from_user.full_name, "Вхождение в date_and_city")
+
+    date_city = bot.send_message(message.chat.id, f"""Введите город, дату прибытия, дату отбытия пример: `Москва, {today}, {two_weeks}` (копируется по нажатию)""", parse_mode='markdown')
+    bot.register_next_step_handler(date_city, get_hotel)
+
+
+def get_hotel(message: Message):
+    text = message.text
+
+    city_date = text.split(', ')
+    city_url = city_date
+
+    if len(city_url) < 3:
+        bot.send_message(message.chat.id, 'Вы ввели не все значения!')
+        date_and_city(message)
+    else:
+        hotel_url = f'https://engine.hotellook.com/api/v2/cache.json?location={translator_ru_to_en.translate(city_url[0]).lower()}&currency=rub&checkIn={city_url[1]}&checkOut={city_url[2]}&limit=10'
+
+        response = requests.get(hotel_url)
+        if str(response) == '<Response [200]>':
+            print(message.from_user.full_name, response)
+            data = json.loads(response.text)
+            content = data
+            bot.send_message(message.chat.id,"Найденные отели по вашему запросу")
+            for hotel in content:
+                current_hotel = translator_en_to_ru.translate(hotel['hotelName'])
+                hotel_without_space = current_hotel.replace(" ", "")
+                link_on_hotel = f"https://yandex.ru/maps/?text={hotel_without_space}"
+                msg = bot.send_message(message.chat.id, f"""
+
+Название отеля: {translator_en_to_ru.translate(hotel['hotelName'])}
+Звёзд: {hotel['stars']}
+Цена от: {int(hotel['priceFrom'])} 
+Средняя цена: {int(hotel['priceAvg'])} 
+Ссылка на карту: {link_on_hotel}    
+                    """)
+            print(message.from_user.full_name, 'Успешно получил информацию об отелях')
+        else:
+            bot.send_message(message.chat.id,'Ошибка в получении запроса.')
+            date_and_city(message)
+            print(message.from_user.full_name, 'Ошибка в получении запроса')
+    bot.register_next_step_handler(msg, get_command)
