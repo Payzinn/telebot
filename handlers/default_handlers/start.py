@@ -56,12 +56,8 @@ def city_input(message: Message):
 
 def get_weather(message: Message):
     city = message.text
-    if message.text == "💵 Стоимость жизни в городе":
-        get_city(message)
-    elif message.text == "🏬 Отели":
-        date_and_city(message)
-    elif message.text == "🌤️ Узнать погоду":
-        city_input(message)
+    if message.text == '🌤️ Узнать погоду' or message.text == '💵 Стоимость жизни в городе' or message.text == '🏬 Отели':
+        get_command(message)
     else:
         print(f'{message.from_user.full_name} Вхождение в функцию get_weather')
         print(f"Введёный город: {city}")
@@ -89,12 +85,8 @@ def get_city(message: Message):
 
 def get_cost_of_life(message: Message):
     city = message.text
-    if message.text == "🌤️ Узнать погоду":
-        city_input(message)
-    elif message.text == "🏬 Отели":
-        date_and_city(message)
-    elif message.text == "💵 Стоимость жизни в городе":
-        get_city(message)
+    if message.text == '🌤️ Узнать погоду' or message.text == '💵 Стоимость жизни в городе' or message.text == '🏬 Отели':
+        get_command(message)
     else:
         print(f'{message.from_user.full_name} Город: {city}')
         city_url = translator_ru_to_en.translate(city.lower())
@@ -159,12 +151,8 @@ def date_and_city(message: Message):
 def get_hotel(message: Message):
     text = message.text
 
-    if message.text == "🌤️ Узнать погоду":
-        city_input(message)
-    elif message.text == "💵 Стоимость жизни в городе":
-        get_city(message)
-    elif message.text == "🏬 Отели":
-        date_and_city(message)
+    if message.text == '🌤️ Узнать погоду' or message.text == '💵 Стоимость жизни в городе' or message.text == '🏬 Отели':
+        get_command(message)
     else:
         city_date = text.split(', ')
         city_url = city_date
