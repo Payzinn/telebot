@@ -23,8 +23,9 @@ hotel_item = types.KeyboardButton('🏬 Отели')
 markup.add(weather_item, cost_item, hotel_item)
 
 today = date.today()
-two_weeks = today + timedelta(weeks=2)
+two_weeks = today + timedelta(weeks=1)
 
+previous_city = ''
 
 # from default_handlers.cost import get_city
 # from default_handlers.weather import city_input
@@ -32,9 +33,10 @@ two_weeks = today + timedelta(weeks=2)
 @bot.message_handler(commands=["start"])
 def welcome(message: Message):
     print(f'{message.from_user.full_name} Вхождение в функцию welcome')
-    commands = bot.send_message(message.chat.id, f'Привет {message.from_user.username}, я бот который предоставит тебе инорфмацию о нужном городе.', reply_markup=markup)
+    commands = bot.send_message(message.chat.id, f'''Привет {message.from_user.username}, 
+я бот который предоставит тебе инорфмацию о нужном городе. 
+Воспользуйтесь моими возможностями ниже.''', reply_markup=markup)
     bot.register_next_step_handler(commands, get_command)
-
 
 def get_command(message: Message):
     text = message.text
@@ -44,7 +46,10 @@ def get_command(message: Message):
     elif text == '💵 Стоимость жизни в городе':
         get_city(message)
     elif text == '🏬 Отели':
-        date_and_city(message)
+        get_city_hotel(message)
+    elif text != '🏬 Отели' or text != '🌤️ Узнать погоду' or '💵 Стоимость жизни в городе':
+        welcome(message)
+
 
 
 #WEATHER
@@ -141,49 +146,43 @@ def get_cost_of_life(message: Message):
 
 
 #HOTEL
-def date_and_city(message: Message):
-    print(message.from_user.full_name, "Вхождение в date_and_city")
+def get_city_hotel(message: Message):
+    print(message.from_user.full_name, "Вхождение в get_city_hotel")
 
-    date_city = bot.send_message(message.chat.id, f"""Введите город, дату прибытия, дату отбытия пример: `Москва, {today}, {two_weeks}` (копируется по нажатию)""", parse_mode='markdown')
-    bot.register_next_step_handler(date_city, get_hotel)
+    city = bot.send_message(message.chat.id, f"""Введите город: """, )
+    bot.register_next_step_handler(city, get_hotel)
 
 
 def get_hotel(message: Message):
-    text = message.text
-
     if message.text == '🌤️ Узнать погоду' or message.text == '💵 Стоимость жизни в городе' or message.text == '🏬 Отели':
         get_command(message)
+
     else:
-        city_date = text.split(', ')
-        city_url = city_date
+        city = message.text
+        hotel_url = f'https://engine.hotellook.com/api/v2/cache.json?location={translator_ru_to_en.translate(city).lower()}&currency=rub&checkIn={today}&checkOut={two_weeks}&limit=10'
 
-        if len(city_url) < 3:
-            bot.send_message(message.chat.id, 'Вы ввели не все значения!')
-            date_and_city(message)
+        response = requests.get(hotel_url)
+        if str(response) == '<Response [200]>':
+            print(message.from_user.full_name, response)
+            data = json.loads(response.text)
+            content = data
+            bot.send_message(message.chat.id,"Найденные отели по вашему запросу")
+            for hotel in content:
+                current_hotel = translator_en_to_ru.translate(hotel['hotelName'])
+                hotel_without_space = current_hotel.replace(" ", "")
+                link_on_hotel = f"https://yandex.ru/maps/?text={hotel_without_space}"
+                msg = bot.send_message(message.chat.id, f"""
+
+Название отеля: {translator_en_to_ru.translate(hotel['hotelName'])}
+Звёзд: {hotel['stars']}
+Цена от: {int(hotel['priceFrom'])} 
+Цена за 1 день: {int(hotel['priceFrom'])//7} 
+Средняя цена: {int(hotel['priceAvg'])} 
+Ссылка на карту: {link_on_hotel}    
+                    """)
+            print(message.from_user.full_name, 'Успешно получил информацию об отелях')
         else:
-            hotel_url = f'https://engine.hotellook.com/api/v2/cache.json?location={translator_ru_to_en.translate(city_url[0]).lower()}&currency=rub&checkIn={city_url[1]}&checkOut={city_url[2]}&limit=10'
-
-            response = requests.get(hotel_url)
-            if str(response) == '<Response [200]>':
-                print(message.from_user.full_name, response)
-                data = json.loads(response.text)
-                content = data
-                bot.send_message(message.chat.id,"Найденные отели по вашему запросу")
-                for hotel in content:
-                    current_hotel = translator_en_to_ru.translate(hotel['hotelName'])
-                    hotel_without_space = current_hotel.replace(" ", "")
-                    link_on_hotel = f"https://yandex.ru/maps/?text={hotel_without_space}"
-                    msg = bot.send_message(message.chat.id, f"""
-
-    Название отеля: {translator_en_to_ru.translate(hotel['hotelName'])}
-    Звёзд: {hotel['stars']}
-    Цена от: {int(hotel['priceFrom'])} 
-    Средняя цена: {int(hotel['priceAvg'])} 
-    Ссылка на карту: {link_on_hotel}    
-                        """)
-                print(message.from_user.full_name, 'Успешно получил информацию об отелях')
-            else:
-                bot.send_message(message.chat.id,'Ошибка в получении запроса. Или вы не правильно ввели данные.')
-                date_and_city(message)
-                print(message.from_user.full_name, 'Ошибка в получении запроса')
-        bot.register_next_step_handler(msg, get_command)
+            bot.send_message(message.chat.id,'Ошибка в получении запроса. Или вы не правильно ввели данные.')
+            get_city_hotel(message)
+            print(message.from_user.full_name, 'Ошибка в получении запроса')
+    bot.register_next_step_handler(msg, get_command)
